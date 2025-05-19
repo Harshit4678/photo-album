@@ -11,11 +11,23 @@ $metaFile = $imagesDir . 'meta.json';
 if (!file_exists($metaFile)) file_put_contents($metaFile, '{}');
 $meta = json_decode(file_get_contents($metaFile), true);
 
+// Pagination params (must be before upload handler for correct $page)
+$allImages = array_values(array_filter(scandir($imagesDir), function($f) use ($allowedFormats, $imagesDir) {
+    $ext = strtolower(pathinfo($f, PATHINFO_EXTENSION));
+    return in_array($ext, $allowedFormats) && is_file($imagesDir . $f);
+}));
+$imagesPerPage = 6;
+$totalPages = max(1, ceil(count($allImages) / $imagesPerPage));
+$page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+if ($page < 1) $page = 1;
+if ($page > $totalPages) $page = $totalPages;
+
 // Handle upload
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['image'])) {
     $file = $_FILES['image'];
     $title = isset($_POST['title']) ? trim($_POST['title']) : '';
     $desc = isset($_POST['desc']) ? trim($_POST['desc']) : '';
+    $redirectPage = isset($_POST['page']) ? (int)$_POST['page'] : $page;
 
     $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
     if (!in_array($ext, $allowedFormats)) {
@@ -32,7 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['image'])) {
                 'desc' => $desc
             ];
             file_put_contents($metaFile, json_encode($meta, JSON_PRETTY_PRINT));
-            header("Location: index.php?success=1");
+            header("Location: index.php?page=$redirectPage&success=1");
             exit;
         } else {
             $error = "Failed to upload image.";
@@ -45,13 +57,14 @@ if (isset($_GET['delete'])) {
     $deleteFile = basename($_GET['delete']);
     $deletePath = $imagesDir . $deleteFile;
     $ext = strtolower(pathinfo($deleteFile, PATHINFO_EXTENSION));
+    $redirectPage = isset($_GET['page']) ? (int)$_GET['page'] : $page;
     if (in_array($ext, $allowedFormats) && is_file($deletePath)) {
         if (unlink($deletePath)) {
             if (isset($meta[$deleteFile])) {
                 unset($meta[$deleteFile]);
                 file_put_contents($metaFile, json_encode($meta, JSON_PRETTY_PRINT));
             }
-            header("Location: index.php?deleted=1");
+            header("Location: index.php?page=$redirectPage&deleted=1");
             exit;
         } else {
             $error = "Failed to delete image.";
@@ -65,19 +78,14 @@ if (isset($_GET['delete'])) {
 if (isset($_GET['success'])) $success = "Image uploaded successfully!";
 if (isset($_GET['deleted'])) $success = "Image deleted successfully!";
 
-// Get images for display and pagination
+// Get images for display and pagination (again, in case upload/delete changed them)
 $allImages = array_values(array_filter(scandir($imagesDir), function($f) use ($allowedFormats, $imagesDir) {
     $ext = strtolower(pathinfo($f, PATHINFO_EXTENSION));
     return in_array($ext, $allowedFormats) && is_file($imagesDir . $f);
 }));
-
-// Pagination params
-$imagesPerPage = 6;
 $totalPages = max(1, ceil(count($allImages) / $imagesPerPage));
-$page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 if ($page < 1) $page = 1;
 if ($page > $totalPages) $page = $totalPages;
-
 $startIndex = ($page - 1) * $imagesPerPage;
 $imagesOnPage = array_slice($allImages, $startIndex, $imagesPerPage);
 ?>
@@ -93,17 +101,19 @@ $imagesOnPage = array_slice($allImages, $startIndex, $imagesPerPage);
 <body>
   <div class="container">
     <header>
-  <div class="title-container">
-    <img src="https://cdn-icons-png.flaticon.com/512/2922/2922561.png" alt="Photo Album Icon" class="logo" />
-    <div>
+     <div class="title-container">
+  <img src="https://cdn-icons-png.flaticon.com/512/2922/2922561.png" alt="Photo Album Icon" class="logo" />
+  <div>
+    <a href="index.php" class="main-heading-link">
       <h1 style="margin:0;">Photo Album</h1>
-      <div style="font-size:1.1rem;font-weight:400;color:#555;letter-spacing:0.5px;">
-        Your beautiful moments, organized.
-      </div>
+    </a>
+    <div style="font-size:1.1rem;font-weight:400;color:#555;letter-spacing:0.5px;">
+      Your beautiful moments, organized.
     </div>
   </div>
-  <button id="darkModeToggle" aria-label="Toggle Dark Mode">🌙</button>
-</header>
+</div>
+      <button id="darkModeToggle" aria-label="Toggle Dark Mode"> '🌙'</button>
+    </header>
 
     <?php if (!empty($error)): ?>
       <div class="error-msg"><?=htmlspecialchars($error)?></div>
@@ -117,6 +127,7 @@ $imagesOnPage = array_slice($allImages, $startIndex, $imagesPerPage);
       <input type="file" name="image" accept=".jpg,.jpeg,.png" required />
       <input type="text" name="title" placeholder="Title (optional)" maxlength="100" />
       <input type="text" name="desc" placeholder="Description (optional)" maxlength="200" />
+      <input type="hidden" name="page" value="<?= $page ?>" />
       <button type="submit">Upload Image</button>
     </form>
 
@@ -135,7 +146,7 @@ $imagesOnPage = array_slice($allImages, $startIndex, $imagesPerPage);
           <?php endif; ?>
           <div class="img-actions">
             <a href="<?= $imgSrc ?>" download class="action-btn download" title="Download"><span>⬇️</span></a>
-            <a href="?delete=<?= urlencode($imgFile) ?>" class="action-btn delete" title="Delete" onclick="return confirm('Delete this image?')"><span>🗑️</span></a>
+            <a href="?delete=<?= urlencode($imgFile) ?>&page=<?= $page ?>" class="action-btn delete" title="Delete" onclick="return confirm('Delete this image?')"><span>🗑️</span></a>
           </div>
         </div>
       <?php endforeach; ?>
@@ -158,11 +169,11 @@ $imagesOnPage = array_slice($allImages, $startIndex, $imagesPerPage);
     </div>
     
     <footer class="footer">
-  <div>
-    Made with ❤️ by <strong>Harshit</strong>
-    <a href="mailto:harshitkumar2045@gmail.com" class="footer-mail">harshitkumar2045@gmail.com</a>
-  </div>
-</footer>
+      <div>
+        Made with ❤️ by <strong>Harshit</strong>
+        <a href="mailto:harshitkumar2045@gmail.com" class="footer-mail">harshitkumar2045@gmail.com</a>
+      </div>
+    </footer>
   </div>
 
   <!-- Modal for image viewer -->
@@ -173,7 +184,6 @@ $imagesOnPage = array_slice($allImages, $startIndex, $imagesPerPage);
       <div class="slides"></div>
     </div>
     <span class="arrow right" onclick="nextImage()">&#10095;</span>
-
   </div>
 
   <script>
@@ -217,25 +227,45 @@ $imagesOnPage = array_slice($allImages, $startIndex, $imagesPerPage);
       slidesContainer.style.transform = `translateX(-${currentIndex * 100}%)`;
     }
 
-    // Dark mode toggle
-    const toggleBtn = document.getElementById('darkModeToggle');
-    toggleBtn.addEventListener('click', () => {
-      document.body.classList.toggle('dark-mode');
-      // Change icon accordingly
-      if(document.body.classList.contains('dark-mode')) {
-        toggleBtn.textContent = '☀️';
-      } else {
-        toggleBtn.textContent = '🌙';
-      }
-    });
+  // Dark mode toggle
+const toggleBtn = document.getElementById('darkModeToggle');
 
-    // Hide messages after 3 seconds with fade out
+// On load, apply dark mode if set
+if (localStorage.getItem('darkMode') === 'enabled') {
+  document.body.classList.add('dark-mode');
+  toggleBtn.textContent = '☀️';
+} else {
+  toggleBtn.textContent = '🌙';
+}
+
+toggleBtn.addEventListener('click', () => {
+  document.body.classList.toggle('dark-mode');
+  if(document.body.classList.contains('dark-mode')) {
+    localStorage.setItem('darkMode', 'enabled');
+    toggleBtn.textContent = '☀️';
+  } else {
+    localStorage.setItem('darkMode', 'disabled');
+    toggleBtn.textContent = '🌙';
+  }
+});
+
+
+    // Hide messages after 2 seconds with fade out and clean URL
     setTimeout(() => {
       const successMsg = document.querySelector('.success-msg');
       if (successMsg) successMsg.style.opacity = '0';
       const errorMsg = document.querySelector('.error-msg');
       if (errorMsg) errorMsg.style.opacity = '0';
+
+      // Remove ?success, ?deleted, but keep ?page in URL without reloading
+      if (window.history.replaceState) {
+        const url = new URL(window.location);
+        url.searchParams.delete('success');
+        url.searchParams.delete('deleted');
+        window.history.replaceState({}, document.title, url.pathname + url.search);
+      }
     }, 2000);
+
   </script>
 </body>
 </html>
