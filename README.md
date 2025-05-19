@@ -43,6 +43,8 @@ Easily upload, view, download, and delete your images with a beautiful UI and da
 - 6 images per page layout.
 - Pagination controls.
 - Fully responsive on mobile.
+- **Click on the moon (🌙) or sun (☀️) icon in the top right to switch between dark and light theme modes.**
+- **All code is simplified and well-commented. Every file contains comments that explain or guide each section and feature, making it easy to understand and modify.**
 
 ---
 
