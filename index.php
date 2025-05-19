@@ -1,4 +1,3 @@
-
 <?php
 $imagesDir = "images/";
 $allowedFormats = ['jpg', 'jpeg', 'png'];
@@ -7,9 +6,16 @@ $maxFileSize = 5 * 1024 * 1024; // 5 MB
 $success = '';
 $error = '';
 
+// Metadata file for titles/descriptions
+$metaFile = $imagesDir . 'meta.json';
+if (!file_exists($metaFile)) file_put_contents($metaFile, '{}');
+$meta = json_decode(file_get_contents($metaFile), true);
+
 // Handle upload
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['image'])) {
     $file = $_FILES['image'];
+    $title = isset($_POST['title']) ? trim($_POST['title']) : '';
+    $desc = isset($_POST['desc']) ? trim($_POST['desc']) : '';
 
     $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
     if (!in_array($ext, $allowedFormats)) {
@@ -21,7 +27,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['image'])) {
     } else {
         $newFileName = uniqid('img_', true) . "." . $ext;
         if (move_uploaded_file($file['tmp_name'], $imagesDir . $newFileName)) {
-            $success = "Image uploaded successfully!";
+            $meta[$newFileName] = [
+                'title' => $title,
+                'desc' => $desc
+            ];
+            file_put_contents($metaFile, json_encode($meta, JSON_PRETTY_PRINT));
+            header("Location: index.php?success=1");
+            exit;
         } else {
             $error = "Failed to upload image.";
         }
@@ -35,7 +47,12 @@ if (isset($_GET['delete'])) {
     $ext = strtolower(pathinfo($deleteFile, PATHINFO_EXTENSION));
     if (in_array($ext, $allowedFormats) && is_file($deletePath)) {
         if (unlink($deletePath)) {
-            $success = "Image deleted successfully!";
+            if (isset($meta[$deleteFile])) {
+                unset($meta[$deleteFile]);
+                file_put_contents($metaFile, json_encode($meta, JSON_PRETTY_PRINT));
+            }
+            header("Location: index.php?deleted=1");
+            exit;
         } else {
             $error = "Failed to delete image.";
         }
@@ -43,6 +60,10 @@ if (isset($_GET['delete'])) {
         $error = "Invalid image selected for deletion.";
     }
 }
+
+// Show messages based on URL
+if (isset($_GET['success'])) $success = "Image uploaded successfully!";
+if (isset($_GET['deleted'])) $success = "Image deleted successfully!";
 
 // Get images for display and pagination
 $allImages = array_values(array_filter(scandir($imagesDir), function($f) use ($allowedFormats, $imagesDir) {
@@ -72,12 +93,17 @@ $imagesOnPage = array_slice($allImages, $startIndex, $imagesPerPage);
 <body>
   <div class="container">
     <header>
-      <div class="title-container">
-        <img src="https://cdn-icons-png.flaticon.com/512/2922/2922561.png" alt="Photo Album Icon" class="logo" />
-        <h1>Photo Album</h1>
+  <div class="title-container">
+    <img src="https://cdn-icons-png.flaticon.com/512/2922/2922561.png" alt="Photo Album Icon" class="logo" />
+    <div>
+      <h1 style="margin:0;">Photo Album</h1>
+      <div style="font-size:1.1rem;font-weight:400;color:#555;letter-spacing:0.5px;">
+        Your beautiful moments, organized.
       </div>
-      <button id="darkModeToggle" aria-label="Toggle Dark Mode">🌙</button>
-    </header>
+    </div>
+  </div>
+  <button id="darkModeToggle" aria-label="Toggle Dark Mode">🌙</button>
+</header>
 
     <?php if (!empty($error)): ?>
       <div class="error-msg"><?=htmlspecialchars($error)?></div>
@@ -89,46 +115,30 @@ $imagesOnPage = array_slice($allImages, $startIndex, $imagesPerPage);
 
     <form action="" method="POST" enctype="multipart/form-data" class="upload-form">
       <input type="file" name="image" accept=".jpg,.jpeg,.png" required />
+      <input type="text" name="title" placeholder="Title (optional)" maxlength="100" />
+      <input type="text" name="desc" placeholder="Description (optional)" maxlength="200" />
       <button type="submit">Upload Image</button>
     </form>
 
     <div class="album">
-      <div class="side left-side">
-        <?php for ($i = 0; $i < 3; $i++): 
-          if (isset($imagesOnPage[$i])):
-            $imgFile = $imagesOnPage[$i];
-            $imgSrc = $imagesDir . htmlspecialchars($imgFile);
-        ?>
-          <div class="img-card">
-            <img src="<?= $imgSrc ?>" 
-                 alt="Photo" 
-                 class="album-img"
-                 onclick="openModal(<?= $startIndex + $i ?>)" />
-            <div class="img-actions">
-              <a href="<?= $imgSrc ?>" download class="action-btn download" title="Download"><span>⬇️</span></a>
-              <a href="?delete=<?= urlencode($imgFile) ?>" class="action-btn delete" title="Delete" onclick="return confirm('Delete this image?')"><span>🗑️</span></a>
-            </div>
+      <?php foreach ($imagesOnPage as $i => $imgFile):
+        $imgSrc = $imagesDir . htmlspecialchars($imgFile);
+        $imgMeta = isset($meta[$imgFile]) ? $meta[$imgFile] : ['title'=>'','desc'=>''];
+      ?>
+        <div class="img-card">
+          <img src="<?= $imgSrc ?>" alt="Photo" class="album-img" onclick="openModal(<?= $startIndex + $i ?>)" />
+          <?php if ($imgMeta['title']): ?>
+            <div class="img-title"><?= htmlspecialchars($imgMeta['title']) ?></div>
+          <?php endif; ?>
+          <?php if ($imgMeta['desc']): ?>
+            <div class="img-desc"><?= htmlspecialchars($imgMeta['desc']) ?></div>
+          <?php endif; ?>
+          <div class="img-actions">
+            <a href="<?= $imgSrc ?>" download class="action-btn download" title="Download"><span>⬇️</span></a>
+            <a href="?delete=<?= urlencode($imgFile) ?>" class="action-btn delete" title="Delete" onclick="return confirm('Delete this image?')"><span>🗑️</span></a>
           </div>
-        <?php endif; endfor; ?>
-      </div>
-      <div class="side right-side">
-        <?php for ($i = 3; $i < 6; $i++): 
-          if (isset($imagesOnPage[$i])):
-            $imgFile = $imagesOnPage[$i];
-            $imgSrc = $imagesDir . htmlspecialchars($imgFile);
-        ?>
-          <div class="img-card">
-            <img src="<?= $imgSrc ?>" 
-                 alt="Photo" 
-                 class="album-img"
-                 onclick="openModal(<?= $startIndex + $i ?>)" />
-            <div class="img-actions">
-              <a href="<?= $imgSrc ?>" download class="action-btn download" title="Download"><span>⬇️</span></a>
-              <a href="?delete=<?= urlencode($imgFile) ?>" class="action-btn delete" title="Delete" onclick="return confirm('Delete this image?')"><span>🗑️</span></a>
-            </div>
-          </div>
-        <?php endif; endfor; ?>
-      </div>
+        </div>
+      <?php endforeach; ?>
     </div>
 
     <div class="pagination">
@@ -146,6 +156,13 @@ $imagesOnPage = array_slice($allImages, $startIndex, $imagesPerPage);
         <span class="btn disabled">Next &raquo;</span>
       <?php endif; ?>
     </div>
+    
+    <footer class="footer">
+  <div>
+    Made with ❤️ by <strong>Harshit</strong>
+    <a href="mailto:harshitkumar2045@gmail.com" class="footer-mail">harshitkumar2045@gmail.com</a>
+  </div>
+</footer>
   </div>
 
   <!-- Modal for image viewer -->
@@ -156,6 +173,7 @@ $imagesOnPage = array_slice($allImages, $startIndex, $imagesPerPage);
       <div class="slides"></div>
     </div>
     <span class="arrow right" onclick="nextImage()">&#10095;</span>
+
   </div>
 
   <script>
@@ -217,7 +235,7 @@ $imagesOnPage = array_slice($allImages, $startIndex, $imagesPerPage);
       if (successMsg) successMsg.style.opacity = '0';
       const errorMsg = document.querySelector('.error-msg');
       if (errorMsg) errorMsg.style.opacity = '0';
-    }, 3000);
+    }, 2000);
   </script>
 </body>
 </html>
