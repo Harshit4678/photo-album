@@ -74,7 +74,7 @@ body.dark-mode header {
 }
 .main-heading-link:hover,
 .main-heading-link:focus {
-  text-decoration: underline;
+  text-decoration: var(--card-hover);
 }
 
 /* Heading/logo area */
